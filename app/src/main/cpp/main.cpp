@@ -17,66 +17,11 @@
 
 static int verboseLogs = 0;
 static int spoofBuild = 1;
-static int spoofProps = 1;
-static int spoofProvider = 1;
+static int spoofProvider = 0;
 static int spoofSignature = 0;
 static int spoofVendingSdk = 0;
 
 static std::map<std::string, std::string> jsonProps;
-
-typedef void (*T_Callback)(void *, const char *, const char *, uint32_t);
-
-static std::map<void *, T_Callback> callbacks;
-
-static void modify_callback(void *cookie, const char *name, const char *value, uint32_t serial) {
-    if (cookie == nullptr || name == nullptr || value == nullptr || !callbacks.contains(cookie)) return;
-
-    const char *oldValue = value;
-
-    std::string prop(name);
-
-    if (jsonProps.count(prop)) {
-        // Exact property match
-        value = jsonProps[prop].c_str();
-    } else {
-        // Leading * wildcard property match
-        for (const auto &p: jsonProps) {
-            if (p.first.starts_with("*") && prop.ends_with(p.first.substr(1))) {
-                value = p.second.c_str();
-                break;
-            }
-        }
-    }
-
-    if (oldValue == value) {
-        if (verboseLogs > 99) LOGD("[%s]: %s (unchanged)", name, oldValue);
-    } else {
-        LOGD("[%s]: %s -> %s", name, oldValue, value);
-    }
-
-    return callbacks[cookie](cookie, name, value, serial);
-}
-
-static void (*o_system_property_read_callback)(const prop_info *, T_Callback, void *);
-
-static void my_system_property_read_callback(const prop_info *pi, T_Callback callback, void *cookie) {
-    if (pi == nullptr || callback == nullptr || cookie == nullptr) {
-        return o_system_property_read_callback(pi, callback, cookie);
-    }
-    callbacks[cookie] = callback;
-    return o_system_property_read_callback(pi, modify_callback, cookie);
-}
-
-static void doHook() {
-    void *handle = DobbySymbolResolver(nullptr, "__system_property_read_callback");
-    if (handle == nullptr) {
-        LOGD("Couldn't find '__system_property_read_callback' handle");
-        return;
-    }
-    LOGD("Found '__system_property_read_callback' handle at %p", handle);
-    DobbyHook(handle, reinterpret_cast<dobby_dummy_func_t>(my_system_property_read_callback),
-        reinterpret_cast<dobby_dummy_func_t *>(&o_system_property_read_callback));
-}
 
 class PlayIntegrityFix : public zygisk::ModuleBase {
 public:
@@ -111,9 +56,6 @@ public:
             api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
             return;
         }
-
-        // We are in GMS now, force unmount
-        api->setOption(zygisk::FORCE_DENYLIST_UNMOUNT);
 
         if (!isDroidGuardOrVending) {
             api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
@@ -165,14 +107,14 @@ public:
 
         readJson();
 
-        if (pkgName == VENDING_PACKAGE) spoofProps = spoofBuild = spoofProvider = spoofSignature = 0;
+        if (pkgName == VENDING_PACKAGE) spoofBuild = spoofProvider = spoofSignature = 0;
         else spoofVendingSdk = 0;
 
-        if (spoofProps > 0) doHook();
         if (spoofBuild + spoofProvider + spoofSignature + spoofVendingSdk > 0) inject();
 
         dexVector.clear();
         json.clear();
+        api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
     }
 
     void preServerSpecialize(zygisk::ServerSpecializeArgs *args) override {
@@ -222,15 +164,6 @@ private:
                 LOGD("Error parsing spoofBuild!");
             }
             json.erase("spoofBuild");
-        }
-        if (json.contains("spoofProps")) {
-            if (!json["spoofProps"].is_null() && json["spoofProps"].is_string() && json["spoofProps"] != "") {
-                spoofProps = stoi(json["spoofProps"].get<std::string>());
-                if (verboseLogs > 0) LOGD("Spoofing System Properties %s!", (spoofProps > 0) ? "enabled" : "disabled");
-            } else {
-                LOGD("Error parsing spoofProps!");
-            }
-            json.erase("spoofProps");
         }
         if (json.contains("spoofProvider")) {
             if (!json["spoofProvider"].is_null() && json["spoofProvider"].is_string() && json["spoofProvider"] != "") {

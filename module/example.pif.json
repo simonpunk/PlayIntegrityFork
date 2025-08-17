@@ -23,13 +23,13 @@
 
   // System Properties
     "*.build.id": "",        // for ro.build.id
-    "*.security_patch": "",  // for ro.build.version.security_patch
+    //"*.security_patch": "",  // for ro.build.version.security_patch
     "*api_level": "",        // for ro.board.api_level, ro.board.first_api_level, ro.product.first_api_level and ro.vendor.api_level
 
   // Advanced Settings
     "spoofBuild": "1",
-    "spoofProps": "1",
-    "spoofProvider": "1",
+    "spoofProps": "0",
+    "spoofProvider": "0",
     "spoofSignature": "0",
     "spoofVendingSdk": "0",
     "verboseLogs": "0"
